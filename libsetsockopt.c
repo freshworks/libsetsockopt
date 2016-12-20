@@ -9,6 +9,25 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+/*If SOL_TCP is already defined , priority must be given to SOL_TCP , otherwise go for IPPROTO_TCP*/
+#if defined(__FreeBSD__) || defined(__OpenBSD__)
+#ifndef SOL_TCP
+#define SOL_TCP	IPPROTO_TCP
+#endif
+#endif
+
+ 
+#ifdef __APPLE__
+#ifndef SOL_TCP
+#define SOL_TCP	IPPROTO_TCP
+#endif
+
+/*Apple/darwin derivative will use TCP_KEEPALIVE*/
+#ifndef TCP_KEEPIDLE
+#define TCP_KEEPIDLE TCP_KEEPALIVE
+#endif
+#endif
+
 typedef int(*socket_func_t)(int domain, int type, int protocol);
 typedef int(*setsockopt_func_t)(int sockfd, int level, int optname,
                                  const void *optval, socklen_t optlen);
@@ -108,19 +127,19 @@ void set_tcp_keepalive_params(int fd)
 
     if (tcp_keepalive_cnt >= 0)
     {
-        setsockopt_org(fd, IPPROTO_TCP, TCP_KEEPCNT,
+        setsockopt_org(fd, SOL_TCP, TCP_KEEPCNT,
                        &tcp_keepalive_cnt, sizeof(tcp_keepalive_cnt));
     }
 
     if (tcp_keepalive_idle)
     {
-        setsockopt_org(fd, IPPROTO_TCP, TCP_KEEPIDLE,
+        setsockopt_org(fd, SOL_TCP, TCP_KEEPIDLE,
                        &tcp_keepalive_idle, sizeof(tcp_keepalive_idle));
     }
 
     if (tcp_keepalive_intvl)
     {
-        setsockopt_org(fd, IPPROTO_TCP, TCP_KEEPINTVL,
+        setsockopt_org(fd, SOL_TCP, TCP_KEEPINTVL,
                        &tcp_keepalive_intvl, sizeof(tcp_keepalive_intvl));
     }
 
