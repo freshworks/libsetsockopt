@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
 
 /*If SOL_TCP is already defined , priority must be given to SOL_TCP , otherwise go for IPPROTO_TCP*/
 #if defined(__FreeBSD__) || defined(__OpenBSD__)
@@ -31,32 +32,40 @@
 typedef int(*socket_func_t)(int domain, int type, int protocol);
 typedef int(*setsockopt_func_t)(int sockfd, int level, int optname,
                                  const void *optval, socklen_t optlen);
-
-void set_tcp_keepalive_params(int fd);
+typedef int (*listen_func_t)(int socket, int backlog);
 
 static socket_func_t socket_org = NULL;
 static setsockopt_func_t setsockopt_org = NULL;
+static listen_func_t listen_org = NULL;
+
+static void init(void);
+static void set_tcp_keepalive_params(int fd);
 
 static int tcp_keepalive_state = -1;
 static int tcp_keepalive_idle = -1;
 static int tcp_keepalive_intvl = -1;
 static int tcp_keepalive_cnt = -1;
+static int listen_backlog_state = -1;
+static int listen_backlog = -1;
 
-void __attribute__ ((constructor)) setsockopt_init(void)
+static pthread_once_t initialized = PTHREAD_ONCE_INIT;
+
+void __attribute__ ((constructor)) setsockopt_init(void) {
+    pthread_once(&initialized, init);
+}
+
+static void init(void)
 {
     socket_org = (socket_func_t) dlsym(RTLD_NEXT, "socket");
-    if (!socket_org)
-    {
-        _exit(1);
-    }
-
     setsockopt_org = (setsockopt_func_t) dlsym(RTLD_NEXT, "setsockopt");
-    if (!setsockopt_org)
+    listen_org = (listen_func_t) dlsym(RTLD_NEXT, "listen");
+    if (!socket_org || !setsockopt_org || !listen_org)
     {
+        fprintf(stderr, "Cannot find necessary functions for override: %p %p %p\n",
+                socket_org, setsockopt_org, listen_org);
         _exit(1);
     }
 
-    // For now only tcp keepalive
     char *param = getenv("SETSOCKOPT_TCP_KEEPALIVE");
     if (param)
     {
@@ -83,15 +92,19 @@ void __attribute__ ((constructor)) setsockopt_init(void)
             }
         }
     }
+
+    param = getenv("SETSOCKOPT_LISTEN_BACKLOG");
+    if (param)
+    {
+        listen_backlog_state = 1;
+        listen_backlog = atoi(param);
+    }
 }
 
 
 int socket(int domain, int type, int protocol)
 {
-    if (!socket_org)
-    {
-        setsockopt_init();
-    }
+    pthread_once(&initialized, init);
 
     int fd = socket_org(domain, type, protocol);
 
@@ -109,16 +122,23 @@ int socket(int domain, int type, int protocol)
 int setsockopt(int sockfd, int level, int optname,
                const void *optval, socklen_t optlen)
 {
-    if (!setsockopt_org)
-    {
-        setsockopt_init();
-    }
+    pthread_once(&initialized, init);
 
     // Should we override again?
     return setsockopt_org(sockfd, level, optname, optval, optlen);
 }
 
-void set_tcp_keepalive_params(int fd)
+int listen(int socket, int backlog) {
+    pthread_once(&initialized, init);
+
+    if (listen_backlog_state > 0) {
+        backlog = listen_backlog;
+    }
+
+    return listen_org(socket, backlog);
+}
+
+static void set_tcp_keepalive_params(int fd)
 {
     int errno_org = errno;
 
