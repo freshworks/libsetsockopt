@@ -1,5 +1,5 @@
 TARGET = libsetsockopt.so
-LIBS = -ldl
+LIBS = -ldl -lpthread
 CC = gcc
 CFLAGS = -O3 -g -fPIC -Wall
 LDFLAGS = -fPIC -Wall -W -shared
